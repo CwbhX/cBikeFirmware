@@ -46,8 +46,9 @@
 #define ODOMETER_ADDRESS 0
 #define WHEEL_CIRCUM_CM 207.5
 #define MAGNETS_PER_WHEEL 1
-#define R1 139000
-#define R2 11000
+#define R1 150000
+#define R2 12000
+#define VCC 3.30
 
 /// Variables
 
@@ -67,6 +68,7 @@ float totalMiles = 0;
 
 // Battery Variables
 int batteryVoltageValue;
+float scaledVoltage;
 float batteryVoltage;
 
 // Sensor Variables
@@ -97,6 +99,9 @@ long prevBrakeBtnPressed = 0;
 
 // Screen State Variable - For Menus and stuff
 int ScreenState = 0;
+
+int lightThreshold = 2500;
+float PWMMultiplier;
 
 // Blinker variables for producing a blinky blink
 long blinkerInitialTime;  // in ms, to keep track of blinking
@@ -258,12 +263,36 @@ void readSensors(){
 }
 
 void calculateBatteryVoltage(){
-
+  scaledVoltage  = (batteryVoltageValue/4095)*VCC;
+  batteryVoltage = scaledVoltage/(R2/(R1+R2));
 }
 
 // Handle PWM of the lights and their brightness from various inputs
 void handleLights(){
+  // Brightness control for ambient light
+  if(lightSensorValue < lightThreshold) PWMMultiplier = 0.5;
+  else PWMMultiplier = 1;
 
+  // Left Blinker
+  if(leftBlinkerState == true){
+    analogWrite(PA8, floor(205*PWMMultiplier));
+  }else{
+    analogWrite(PA8, 0);
+  }
+
+  // Right Blinker
+  if(rightBlinkerState == true){
+    analogWrite(PA9, floor(205*PWMMultiplier));
+  }else{
+    analogWrite(PA9, 0);
+  }
+
+  // Headlight
+  if(PWMMultiplier != 1){
+    analogWrite(PA10, 225);
+  }else{
+    analogWrite(PA10, 0);
+  }
 }
 
 void updateOLED(){
