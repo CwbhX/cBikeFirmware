@@ -61,6 +61,8 @@ volatile bool leftBtnPressed   = false;
 volatile bool rightBtnPressed  = false;
 volatile int  hallDect         = 0;
 
+int ScreenState = 0;
+
 /// Functions
 
 // ISRs
@@ -153,12 +155,17 @@ void setupPins(){
   pinMode(PA10, OUTPUT);  // Headlight PWM
 }
 
+void readEEPROM(){
+  EEPROM.get(0*sizeof(float), tripMetres); // Read back the trip meter in metres
+  EEPROM.get(1*sizeof(float), tripMiles);  // Read back the trip miles meter in miles
+  EEPROM.get(2*sizeof(float), totalMiles)  // Read back odometer value in miles
+}
+
 void setup() {
   Serial.begin(115200);
   analogReadResolution(12);
   setupPins();
-
-  // TODO: READ EEPROM
+  readEEPROM();
 
 }
 
