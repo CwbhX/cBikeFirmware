@@ -46,12 +46,17 @@
 #define ODOMETER_ADDRESS 0
 #define WHEEL_CIRCUM_CM 207.5
 #define MAGNETS_PER_WHEEL 1
+#define R1 139000
+#define R2 11000
 
 /// Variables
+
+// SD Card / Logging Variables
 File sdLogFile;
 String logFileName = "cBikeLog.csv";
 String logString;
 
+// Trip Variables
 long prevCycleTime = 0;
 long prevCycleTimeDiff;
 float KPH = 0;
@@ -60,15 +65,18 @@ float tripMetres = 0;
 float tripMiles = 0;
 float totalMiles = 0;
 
+// Battery Variables
 int batteryVoltageValue;
 float batteryVoltage;
 
+// Sensor Variables
 int lightSensorValue;
 int systemTempValue;
 int leftBasketTempValue;
 int rightBasketTempValue;
 bool SDCardPresent;
 
+// ISR Variables
 volatile bool powerState       = false;
 volatile bool blueBtnPressed   = false;
 volatile bool yellowBtnPressed = false;
@@ -78,9 +86,23 @@ volatile bool rightBtnPressed  = false;
 volatile int  hallDect         = 0;
 volatile bool brakeBtnPressed  = false;
 
+// Debounce Variables
+long prevPowerBtnPress   = 0;
+long prevBlueBtnPress    = 0;
+long prevYellowBtnPress  = 0;
+long prevRedBtnPress     = 0;
+long prevLeftBtnPressed  = 0;
+long prevRightBtnPressed = 0;
+long prevBrakeBtnPressed = 0;
+
+// Screen State Variable - For Menus and stuff
 int ScreenState = 0;
-long blinkerInitialTime; // in ms, to keep track of blinking
-bool blinkerDirection;   // true = left, false = right
+
+// Blinker variables for producing a blinky blink
+long blinkerInitialTime;  // in ms, to keep track of blinking
+bool blinkerDirection;    // true = left, false = right
+bool blinking;
+int blinkTimerMultiplier; // this way I can do easy comparisons for every 500ms
 
 // Whether they are on or off
 bool leftBlinkerState  = false;
@@ -114,6 +136,43 @@ void brakeBtnISR(){
 }
 void powerBtnISR(){
 
+}
+
+// Debounce Function that returns true if it's not a bounce, or false if it is
+bool debounce(long &previousTime){
+  if((millis() - previousTime) > DEBOUNCE_TIME_MS){
+      previousTime = millis();
+     return true;
+  }else{
+    return false;
+  }
+}
+
+// Remove bounciness from the button inputs
+void processDebouncing(){
+  if(blueBtnPressed == true){
+    blueBtnPressed = debounce(prevBlueBtnPress);
+  }
+
+  if(yellowBtnPressed == true){
+    yellowBtnPressed = debounce(prevYellowBtnPress);
+  }
+
+  if(redBtnPressed == true){
+    redBtnPressed = debounce(prevRedBtnPress);
+  }
+
+  if(leftBtnPressed == true){
+    leftBtnPressed = debounce(prevLeftBtnPressed);
+  }
+
+  if(rightBtnPressed == true){
+    rightBtnPressed = debounce(prevRightBtnPressed);
+  }
+
+  if(brakeBtnPressed == true){
+    brakeBtnPressed = debounce(prevBrakeBtnPressed);
+  }
 }
 
 void processInterrupts(){
@@ -154,7 +213,37 @@ void processInterrupts(){
 
 // Handles the timing for switching the states of the lights
 void processBlinkers(){
+  if(leftBtnPressed || rightBtnPressed){
+    blinkerInitialTime = millis();
+    blinkTimerMultiplier = 1;
+    blinking = true;
+    
+    // Set the correct blinking direction
+    if(leftBtnPressed) blinkerDirection = true;
+    else blinkerDirection = false;
+  }
 
+  // In case the interrupt is not called but we are still trying to blink 
+  if(blinking){
+    if((millis() - blinkerInitialTime)/blinkTimerMultiplier < 500){
+      if(blinkTimerMultiplier % 2 == 0){ // If Even AKA the OFF cycle
+        if(blinkerDirection) leftBlinkerState = false;
+        else rightBlinkerState = false;
+      }else{                             // If odd AKA the ON cycle
+        if(blinkerDirection) leftBlinkerState = true;
+        else rightBlinkerState = true;
+      }
+    }else{ // If it is beyond 500ms then we are on the next cycle
+      blinkTimerMultiplier++;
+    }
+
+    // Turn off after 15 on/off cycles
+    if(blinkTimerMultiplier >= 30){
+      blinking = false;
+      leftBlinkerState = false;
+      rightBlinkerState = false;
+    }
+  }
 }
 
 void readSensors(){
@@ -182,7 +271,7 @@ void updateOLED(){
 }
 
 void processLogs(){
-  
+
 }
 
 // TODO: Figure out noisy interrupts when touching things (I think)
@@ -233,11 +322,12 @@ void setup() {
 }
 
 void loop() {
-  processInterrupts();
-  processBlinkers();
-  readSensors();
-  calculateBatteryVoltage();
-  handleLights();
-  updateOLED();
-  processLogs();
+  processInterrupts();        // Process all received ISRs from previous loop
+  processDebouncing();        // Debounce all received inputs from ISRs before they are used in the loop
+  processBlinkers();          // Proces the state of the blinkers
+  readSensors();              // Read all sensors that do not have ISRs
+  calculateBatteryVoltage();  // Calculate the system's voltage level
+  handleLights();             // Handle the lights based off of sensors and blinker state
+  updateOLED();               // Update the OLED with all the updated information
+  processLogs();              // Log the information
 }
