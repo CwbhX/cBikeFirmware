@@ -137,18 +137,20 @@ void hallDectISR(){
   hallDect++;
 }
 void brakeBtnISR(){
-
+  brakeBtnPressed = true;
 }
 void powerBtnISR(){
-
+  powerState = true;
 }
 
 // Debounce Function that returns true if it's not a bounce, or false if it is
 bool debounce(long &previousTime){
   if((millis() - previousTime) > DEBOUNCE_TIME_MS){
+      Serial.println("Non-bounced Press");
       previousTime = millis();
      return true;
   }else{
+    Serial.println("Bounce Detected");
     return false;
   }
 }
@@ -182,30 +184,41 @@ void processDebouncing(){
 
 void processInterrupts(){
   if(blueBtnPressed == true){
-    Serial.println("Blue Button was pressed!");
+    //Serial.println("Blue Button was pressed!");
     blueBtnPressed = false;
   }
 
   if(yellowBtnPressed == true){
-    Serial.println("Yellow Button was pressed!");
+    //Serial.println("Yellow Button was pressed!");
     yellowBtnPressed = false;
   }
 
   if(redBtnPressed == true){
-    Serial.println("Red Button was pressed!");
+    //Serial.println("Red Button was pressed!");
     redBtnPressed = false;
   }
 
   if(rightBtnPressed == true){
-    Serial.println("Right Button was pressed!");
-    rightBtnPressed = false;
+    //Serial.println("Right Button was pressed!");
+    //rightBtnPressed = false;
   }
 
   if(leftBtnPressed == true){
-    Serial.println("Left Button was pressed!");
+    //Serial.println("Left Button was pressed!");
+    //leftBtnPressed = false;
+  }
+
+  if(brakeBtnPressed == true){
+    //Serial.println("Brake Button was pressed!");
     leftBtnPressed = false;
   }
 
+  // Needs to be configured to operate at changing! not just falling edge and hopefully digitalread the new state
+  if(powerState == true){
+    Serial.println("Power state is true");
+    powerState = false;
+  }
+  
   if(hallDect > 0){
     prevCycleTimeDiff = millis() - prevCycleTime;                                     // Don't need this variable but why not
     tripMetres += hallDect*WHEEL_CIRCUM_CM/MAGNETS_PER_WHEEL;
@@ -222,10 +235,16 @@ void processBlinkers(){
     blinkerInitialTime = millis();
     blinkTimerMultiplier = 1;
     blinking = true;
-    
+
+    Serial.println("Blinker Pressed");
     // Set the correct blinking direction
-    if(leftBtnPressed) blinkerDirection = true;
-    else blinkerDirection = false;
+    if(leftBtnPressed){
+      leftBtnPressed = false;
+      blinkerDirection = true;
+    }else{
+      rightBtnPressed = false;
+      blinkerDirection = false;
+    }
   }
 
   // In case the interrupt is not called but we are still trying to blink 
@@ -268,35 +287,48 @@ void calculateBatteryVoltage(){
 }
 
 // Handle PWM of the lights and their brightness from various inputs
+// TODO: Brake Light Intensity
+// BUG: Changing Direction while other directional light is still on will keep it on!
+// TODO: Lights remain off except when flashing. Need to respond to light and brakes in addition
 void handleLights(){
   // Brightness control for ambient light
-  if(lightSensorValue < lightThreshold) PWMMultiplier = 0.5;
+  if(lightSensorValue < lightThreshold) PWMMultiplier = 0.35;
   else PWMMultiplier = 1;
 
-  // Left Blinker
+  //Left Blinker
   if(leftBlinkerState == true){
+    //Serial.println("Turning on the left blinker");
     analogWrite(PA8, floor(205*PWMMultiplier));
   }else{
+    //Serial.println("Turning off the left blinker");
     analogWrite(PA8, 0);
   }
 
   // Right Blinker
   if(rightBlinkerState == true){
+    //Serial.println("Turning on the right blinker");
     analogWrite(PA9, floor(205*PWMMultiplier));
   }else{
+    //Serial.println("Turning off the right blinker");
     analogWrite(PA9, 0);
   }
 
   // Headlight
   if(PWMMultiplier != 1){
     analogWrite(PA10, 225);
+//    Serial.println(round(205*PWMMultiplier));
+//    Serial.println(PWMMultiplier);
+//    analogWrite(PA8, round(205*PWMMultiplier));
+//    analogWrite(PA9, round(205*PWMMultiplier));
   }else{
     analogWrite(PA10, 0);
+//    analogWrite(PA8, 205);
+//    analogWrite(PA9, 205);
   }
 }
 
 void updateOLED(){
-
+  
 }
 
 void processLogs(){
@@ -309,7 +341,7 @@ void setupPins(){
   pinMode(PB12, INPUT);  // Blue Btn
   pinMode(PB13, INPUT);  // Yellow Btn
   pinMode(PB14, INPUT);  // Red Btn
-  pinMode(PA15, INPUT);  // Right Blinker
+  pinMode(PB8, INPUT);  // Right Blinker  -- NOTE: Original PA15 doesn't work?!
   pinMode(PB3,  INPUT);  // Left Blinker
   pinMode(PB4,  INPUT);  // SD Card Detect
   pinMode(PB15, INPUT);  // Hall Effect Sensor
@@ -324,10 +356,11 @@ void setupPins(){
   attachInterrupt(digitalPinToInterrupt(PB12), blueBtnISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(PB13), yellowBtnISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(PB14), redBtnISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(PA15), rightBtnISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(PB8), rightBtnISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(PB3),  leftBtnISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(PB15),  hallDectISR, FALLING);
-  // TODO: Add Brake Interrupt
+  attachInterrupt(digitalPinToInterrupt(PB15), hallDectISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(PB10), brakeBtnISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(PB11), powerBtnISR, FALLING);
   // TODO: Add Power Interrupt
 
   // Outputs
@@ -347,16 +380,19 @@ void setup() {
   analogReadResolution(12);
   setupPins();
   readEEPROM();
-
+  
 }
 
 void loop() {
-  processInterrupts();        // Process all received ISRs from previous loop
-  processDebouncing();        // Debounce all received inputs from ISRs before they are used in the loop
+  //long inittime = micros();
+  processDebouncing();        // NEDS TO BE IN FRON TOF PROCESSING
+  processInterrupts();        // Process all received ISRs from previous loop -- NOTE: Not everything should be processed here as made clear by blinkers
+  //////////////////////////////processDebouncing();        // Debounce all received inputs from ISRs before they are used in the loop
   processBlinkers();          // Proces the state of the blinkers
   readSensors();              // Read all sensors that do not have ISRs
   calculateBatteryVoltage();  // Calculate the system's voltage level
   handleLights();             // Handle the lights based off of sensors and blinker state
   updateOLED();               // Update the OLED with all the updated information
   processLogs();              // Log the information
+  //Serial.println(micros()-inittime);
 }
