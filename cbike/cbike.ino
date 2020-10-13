@@ -1,14 +1,10 @@
-#include <EEPROM.h>
-#include <SPI.h>
-#include <SD.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include "cbike.h"
 
 
 /* NOTES:
 
 - The ADC pins on the STM32F103C8 is only 50 ohms, therefore a buffer with certainly be needed for many inputs
+- PA15 is a JTAG pin and doesn't work with interrupts without special configuration
 
 */
 
@@ -41,79 +37,6 @@
 
 */
 
-/// DEFINED CONSTANTS
-#define DEBOUNCE_TIME_MS 500
-#define ODOMETER_ADDRESS 0
-#define WHEEL_CIRCUM_CM 207.5
-#define MAGNETS_PER_WHEEL 1
-#define R1 150000
-#define R2 12000
-#define VCC 3.30
-
-/// Variables
-
-// SD Card / Logging Variables
-File sdLogFile;
-String logFileName = "cBikeLog.csv";
-String logString;
-
-// Trip Variables
-long prevCycleTime = 0;
-long prevCycleTimeDiff;
-float KPH = 0;
-float MPH = 0;
-float tripMetres = 0;
-float tripMiles = 0;
-float totalMiles = 0;
-
-// Battery Variables
-int batteryVoltageValue;
-float scaledVoltage;
-float batteryVoltage;
-
-// Sensor Variables
-int lightSensorValue;
-int systemTempValue;
-int leftBasketTempValue;
-int rightBasketTempValue;
-bool SDCardPresent;
-
-// ISR Variables
-volatile bool powerState       = false;
-volatile bool blueBtnPressed   = false;
-volatile bool yellowBtnPressed = false;
-volatile bool redBtnPressed    = false;
-volatile bool leftBtnPressed   = false;
-volatile bool rightBtnPressed  = false;
-volatile int  hallDect         = 0;
-volatile bool brakeBtnPressed  = false;
-
-// Debounce Variables
-long prevPowerBtnPress   = 0;
-long prevBlueBtnPress    = 0;
-long prevYellowBtnPress  = 0;
-long prevRedBtnPress     = 0;
-long prevLeftBtnPressed  = 0;
-long prevRightBtnPressed = 0;
-long prevBrakeBtnPressed = 0;
-
-// Screen State Variable - For Menus and stuff
-int ScreenState = 0;
-
-int lightThreshold = 2500;
-float PWMMultiplier;
-
-// Blinker variables for producing a blinky blink
-long blinkerInitialTime;  // in ms, to keep track of blinking
-bool blinkerDirection;    // true = left, false = right
-bool blinking;
-int blinkTimerMultiplier; // this way I can do easy comparisons for every 500ms
-
-// Whether they are on or off
-bool leftBlinkerState  = false;
-bool rightBlinkerState = false;
-bool headLightState    = false;
-
 /// Functions
 
 // ISRs
@@ -137,7 +60,7 @@ void hallDectISR(){
   hallDect++;
 }
 void brakeBtnISR(){
-  brakeBtnPressed = true;
+  //brakeBtnPressed = true;
 }
 void powerBtnISR(){
   powerState = true;
@@ -177,9 +100,9 @@ void processDebouncing(){
     rightBtnPressed = debounce(prevRightBtnPressed);
   }
 
-  if(brakeBtnPressed == true){
-    brakeBtnPressed = debounce(prevBrakeBtnPressed);
-  }
+  // if(brakeBtnPressed == true){
+  //   brakeBtnPressed = debounce(prevBrakeBtnPressed);
+  // }
 }
 
 void processInterrupts(){
@@ -208,10 +131,10 @@ void processInterrupts(){
     //leftBtnPressed = false;
   }
 
-  if(brakeBtnPressed == true){
-    //Serial.println("Brake Button was pressed!");
-    leftBtnPressed = false;
-  }
+  // if(brakeBtnPressed == true){
+  //   //Serial.println("Brake Button was pressed!");
+  //   leftBtnPressed = false;
+  // }
 
   // Needs to be configured to operate at changing! not just falling edge and hopefully digitalread the new state
   if(powerState == true){
@@ -264,6 +187,8 @@ void processBlinkers(){
     // Turn off after 15 on/off cycles
     if(blinkTimerMultiplier >= 30){
       blinking = false;
+
+      // Might have a weird bug where blinking ends and lights are briefly turned off and then on due to normal lighting resuming at the bottom of handle lights
       leftBlinkerState = false;
       rightBlinkerState = false;
     }
@@ -292,39 +217,63 @@ void calculateBatteryVoltage(){
 // TODO: Lights remain off except when flashing. Need to respond to light and brakes in addition
 void handleLights(){
   // Brightness control for ambient light
-  if(lightSensorValue < lightThreshold) PWMMultiplier = 0.35;
+  if(lightSensorValue < lightThreshold)PWMMultiplier = 0.35;
   else PWMMultiplier = 1;
 
-  //Left Blinker
-  if(leftBlinkerState == true){
-    //Serial.println("Turning on the left blinker");
-    analogWrite(PA8, floor(205*PWMMultiplier));
-  }else{
-    //Serial.println("Turning off the left blinker");
+  // Headlight Control
+  if(PWMMultiplier < 1){   // NIGHTTIME
+    analogWrite(PA10, 240); // Headlight on when dark
+  }else{                    // DAYTIME
+    analogWrite(PA10, 0);   // Turn off headlight
+  }
+
+  // Left Blinker On - only if it is time to turn it back on for the on cycle and we haven't already turned it on this cycle
+  if(leftBlinkerState == true && leftBlinkerPrevState == false){      // Only turn on if it was off before (FORESEEN BUG: WILL AFFECT BRAKING LIGHT)
+      analogWrite(PA8, 200*PWMMultiplier);  // Normal brightness on left taillight
+      leftBlinkerPrevState = true;
+    }
+
+  // Right Blinker On -  "
+  if(rightBlinkerState == true && rightBlinkerPrevState == false){
+      analogWrite(PA9, 200*PWMMultiplier);  // Normal brightness on right taillight
+      rightBlinkerPrevState = true;
+    }
+
+  // Left Blinker Blinking off - only if it is time to turn it off and we haven't already turned it off this cycle
+  if(leftBlinkerState == false && leftBlinkerPrevState == true){
+    //Serial.println("Left Blinker Off");
     analogWrite(PA8, 0);
+    leftBlinkerPrevState = false;
   }
 
-  // Right Blinker
-  if(rightBlinkerState == true){
-    //Serial.println("Turning on the right blinker");
-    analogWrite(PA9, floor(205*PWMMultiplier));
-  }else{
-    //Serial.println("Turning off the right blinker");
+  // Right Blinker Blinking off
+  if(rightBlinkerState == false && rightBlinkerPrevState == true){
+    //Serial.println("Right Blinker Off");
     analogWrite(PA9, 0);
+    rightBlinkerPrevState = false;
   }
 
-  // Headlight
-  if(PWMMultiplier != 1){
-    analogWrite(PA10, 225);
-//    Serial.println(round(205*PWMMultiplier));
-//    Serial.println(PWMMultiplier);
-//    analogWrite(PA8, round(205*PWMMultiplier));
-//    analogWrite(PA9, round(205*PWMMultiplier));
-  }else{
-    analogWrite(PA10, 0);
-//    analogWrite(PA8, 205);
-//    analogWrite(PA9, 205);
+  // If we are not blinking, handle brake brightness and regular running taillights 
+  if(blinking == false){
+      // If braking - will get spammed a bit when braking is occuring, but it is simple code and don't have to mess with blinking much
+    if(braking){
+      PWMMultiplier += 0.2; // Make taillights brighter if braking
+      leftBlinkerPrevState = false;
+      rightBlinkerPrevState = false;
+    }
+    // Left Blinker On
+    if(leftBlinkerPrevState == false){      // Only turn on if it was off before (FORESEEN BUG: WILL AFFECT BRAKING LIGHT)
+      analogWrite(PA8, 200*PWMMultiplier);  // Normal brightness on left taillight
+      leftBlinkerPrevState = true;
+    }
+
+    // Right Blinker On
+    if(rightBlinkerPrevState == false){
+      analogWrite(PA9, 200*PWMMultiplier);  // Normal brightness on right taillight
+      rightBlinkerPrevState = true;
+    }
   }
+
 }
 
 void updateOLED(){
