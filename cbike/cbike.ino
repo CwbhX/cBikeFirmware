@@ -60,10 +60,10 @@ void hallDectISR(){
   hallDect++;
 }
 void brakeBtnISR(){
-  //brakeBtnPressed = true;
+  brakeBtnPressed = true;
 }
 void powerBtnISR(){
-  powerState = true;
+  powerBtnPressed = true;
 }
 
 // Debounce Function that returns true if it's not a bounce, or false if it is
@@ -100,9 +100,13 @@ void processDebouncing(){
     rightBtnPressed = debounce(prevRightBtnPressed);
   }
 
-  // if(brakeBtnPressed == true){
-  //   brakeBtnPressed = debounce(prevBrakeBtnPressed);
-  // }
+  if(brakeBtnPressed == true){
+    brakeBtnPressed = debounce(prevBrakeBtnPressed);
+  }
+
+  if(powerBtnPressed == true){
+    powerBtnPressed = debounce(prevPowerBtnPress);
+  }
 }
 
 void processInterrupts(){
@@ -121,25 +125,31 @@ void processInterrupts(){
     redBtnPressed = false;
   }
 
-  if(rightBtnPressed == true){
-    //Serial.println("Right Button was pressed!");
-    //rightBtnPressed = false;
-  }
-
-  if(leftBtnPressed == true){
-    //Serial.println("Left Button was pressed!");
-    //leftBtnPressed = false;
-  }
-
-  // if(brakeBtnPressed == true){
-  //   //Serial.println("Brake Button was pressed!");
-  //   leftBtnPressed = false;
+  /// THESE ARE PROCESSED IN THE PROCESSING OF THE BLINKERS
+  // if(rightBtnPressed == true){
+  //   //Serial.println("Right Button was pressed!");
+  //   //rightBtnPressed = false;
   // }
 
-  // Needs to be configured to operate at changing! not just falling edge and hopefully digitalread the new state
-  if(powerState == true){
-    Serial.println("Power state is true");
-    powerState = false;
+  // if(leftBtnPressed == true){
+  //   //Serial.println("Left Button was pressed!");
+  //   //leftBtnPressed = false;
+  // }
+
+  if(brakeBtnPressed == true){
+    //Serial.println("Brake Button was pressed!");
+//    Serial.print("Brake button is now: ");
+//    Serial.println(digitalRead(PB10));
+    braking = !digitalRead(PB10);
+  }
+
+  // This and brake might be updated too fast, e.g. moving on the first one since power state is always 1?? at least with the breadboard switch
+  // These should have a delay to reading them, but how to do that without blocking ? - Like the debouncing kind of?
+  if(powerBtnPressed == true){
+    Serial.println("Power Button was moved!");
+    powerState = !digitalRead(PB11);
+    Serial.print("Power state is now: ");
+    Serial.println(powerState);
   }
   
   if(hallDect > 0){
@@ -216,62 +226,74 @@ void calculateBatteryVoltage(){
 // BUG: Changing Direction while other directional light is still on will keep it on!
 // TODO: Lights remain off except when flashing. Need to respond to light and brakes in addition
 void handleLights(){
-  // Brightness control for ambient light
-  if(lightSensorValue < lightThreshold)PWMMultiplier = 0.35;
-  else PWMMultiplier = 1;
+  // If we are turned on do the light handling code...
+  if(powerState == 1){
 
-  // Headlight Control
-  if(PWMMultiplier < 1){   // NIGHTTIME
-    analogWrite(PA10, 240); // Headlight on when dark
-  }else{                    // DAYTIME
-    analogWrite(PA10, 0);   // Turn off headlight
-  }
+    // Brightness control for ambient light
+    if(lightSensorValue < lightThreshold)PWMMultiplier = 0.35;
+    else PWMMultiplier = 1;
 
-  // Left Blinker On - only if it is time to turn it back on for the on cycle and we haven't already turned it on this cycle
-  if(leftBlinkerState == true && leftBlinkerPrevState == false){      // Only turn on if it was off before (FORESEEN BUG: WILL AFFECT BRAKING LIGHT)
-      analogWrite(PA8, 200*PWMMultiplier);  // Normal brightness on left taillight
-      leftBlinkerPrevState = true;
+    // Headlight Control
+    if(PWMMultiplier < 1){   // NIGHTTIME
+      analogWrite(PA10, 240); // Headlight on when dark
+    }else{                    // DAYTIME
+      analogWrite(PA10, 0);   // Turn off headlight
     }
 
-  // Right Blinker On -  "
-  if(rightBlinkerState == true && rightBlinkerPrevState == false){
-      analogWrite(PA9, 200*PWMMultiplier);  // Normal brightness on right taillight
-      rightBlinkerPrevState = true;
-    }
+    // Left Blinker On - only if it is time to turn it back on for the on cycle and we haven't already turned it on this cycle
+    if(leftBlinkerState == true && leftBlinkerPrevState == false){      // Only turn on if it was off before (FORESEEN BUG: WILL AFFECT BRAKING LIGHT)
+        analogWrite(PA8, 200*PWMMultiplier);  // Normal brightness on left taillight
+        leftBlinkerPrevState = true;
+      }
 
-  // Left Blinker Blinking off - only if it is time to turn it off and we haven't already turned it off this cycle
-  if(leftBlinkerState == false && leftBlinkerPrevState == true){
-    //Serial.println("Left Blinker Off");
-    analogWrite(PA8, 0);
-    leftBlinkerPrevState = false;
-  }
+    // Right Blinker On -  "
+    if(rightBlinkerState == true && rightBlinkerPrevState == false){
+        analogWrite(PA9, 200*PWMMultiplier);  // Normal brightness on right taillight
+        rightBlinkerPrevState = true;
+      }
 
-  // Right Blinker Blinking off
-  if(rightBlinkerState == false && rightBlinkerPrevState == true){
-    //Serial.println("Right Blinker Off");
-    analogWrite(PA9, 0);
-    rightBlinkerPrevState = false;
-  }
-
-  // If we are not blinking, handle brake brightness and regular running taillights 
-  if(blinking == false){
-      // If braking - will get spammed a bit when braking is occuring, but it is simple code and don't have to mess with blinking much
-    if(braking){
-      PWMMultiplier += 0.2; // Make taillights brighter if braking
+    // Left Blinker Blinking off - only if it is time to turn it off and we haven't already turned it off this cycle
+    if(leftBlinkerState == false && leftBlinkerPrevState == true){
+      //Serial.println("Left Blinker Off");
+      analogWrite(PA8, 0);
       leftBlinkerPrevState = false;
+    }
+
+    // Right Blinker Blinking off
+    if(rightBlinkerState == false && rightBlinkerPrevState == true){
+      //Serial.println("Right Blinker Off");
+      analogWrite(PA9, 0);
       rightBlinkerPrevState = false;
     }
-    // Left Blinker On
-    if(leftBlinkerPrevState == false){      // Only turn on if it was off before (FORESEEN BUG: WILL AFFECT BRAKING LIGHT)
-      analogWrite(PA8, 200*PWMMultiplier);  // Normal brightness on left taillight
-      leftBlinkerPrevState = true;
+
+    // If we are not blinking, handle brake brightness and regular running taillights 
+    if(blinking == false){
+        // If braking - will get spammed a bit when braking is occuring, but it is simple code and don't have to mess with blinking much
+      if(braking){
+        PWMMultiplier += 0.2; // Make taillights brighter if braking
+        leftBlinkerPrevState = false;
+        rightBlinkerPrevState = false;
+      }
+      // Left Blinker On
+      if(leftBlinkerPrevState == false){      // Only turn on if it was off before (FORESEEN BUG: WILL AFFECT BRAKING LIGHT)
+        analogWrite(PA8, 200*PWMMultiplier);  // Normal brightness on left taillight
+        leftBlinkerPrevState = true;
+      }
+
+      // Right Blinker On
+      if(rightBlinkerPrevState == false){
+        analogWrite(PA9, 200*PWMMultiplier);  // Normal brightness on right taillight
+        rightBlinkerPrevState = true;
+      }
     }
 
-    // Right Blinker On
-    if(rightBlinkerPrevState == false){
-      analogWrite(PA9, 200*PWMMultiplier);  // Normal brightness on right taillight
-      rightBlinkerPrevState = true;
-    }
+    prevLightState = true;
+  } else if(powerState == 0 && prevLightState == true){  // Power is off so turn off the lights - previous state prevents us from mindlessly setting PWM off
+    analogWrite(PA8, 0);   // Turn off left light
+    analogWrite(PA9, 0);   // Turn off right light
+    analogWrite(PA10, 0);  // Turn off head light
+
+    prevLightState = false; // The previous light state is now off
   }
 
 }
@@ -308,8 +330,8 @@ void setupPins(){
   attachInterrupt(digitalPinToInterrupt(PB8), rightBtnISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(PB3),  leftBtnISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(PB15), hallDectISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(PB10), brakeBtnISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(PB11), powerBtnISR, FALLING);
+  attachInterrupt(digitalPinToInterrupt(PB10), brakeBtnISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(PB11), powerBtnISR, CHANGE);
   // TODO: Add Power Interrupt
 
   // Outputs

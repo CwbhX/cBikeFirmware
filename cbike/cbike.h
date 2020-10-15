@@ -45,6 +45,8 @@ int leftBasketTempValue;
 int rightBasketTempValue;
 bool SDCardPresent;
 
+bool powerBtnPressed;
+
 // ISR Variables
 volatile bool powerState       = false;
 volatile bool blueBtnPressed   = false;
@@ -75,6 +77,7 @@ long blinkerInitialTime;  // in ms, to keep track of blinking
 bool blinkerDirection;    // true = left, false = right
 bool blinking;
 int blinkTimerMultiplier; // this way I can do easy comparisons for every 500ms
+bool brakeBtnPressed;
 bool braking = false;
 
 // Whether they are on or off
@@ -83,6 +86,7 @@ bool rightBlinkerState     = false;
 bool leftBlinkerPrevState  = false;
 bool rightBlinkerPrevState = false;
 bool headLightState        = false;
+bool prevLightState        = false;
 
 
 #endif
