@@ -13,9 +13,12 @@
 #define ODOMETER_ADDRESS 0
 #define WHEEL_CIRCUM_CM 207.5
 #define MAGNETS_PER_WHEEL 1
-#define R1 150000
-#define R2 12000
+#define R1 150000.00
+#define R2 12000.00
 #define VCC 3.30
+#define OLED_RESET PB5 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
 
 /// Variables
 
@@ -23,6 +26,9 @@
 File sdLogFile;
 String logFileName = "cBikeLog.csv";
 String logString;
+
+// OLED
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // Trip Variables
 long prevCycleTime = 0;
@@ -83,6 +89,7 @@ bool braking = false;
 // Whether they are on or off
 bool leftBlinkerState      = false;
 bool rightBlinkerState     = false;
+bool headlightState        = false;
 bool leftBlinkerPrevState  = false;
 bool rightBlinkerPrevState = false;
 bool headLightState        = false;

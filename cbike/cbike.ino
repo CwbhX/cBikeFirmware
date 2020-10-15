@@ -40,7 +40,6 @@
 /// Functions
 
 // ISRs
-// TODO: Power Button ISR
 void blueBtnISR(){
   blueBtnPressed = true;
 }
@@ -136,10 +135,12 @@ void processInterrupts(){
   //   //leftBtnPressed = false;
   // }
 
+  // Perhaps the delay won't be noticable since it will only occur after a debounced change in state..?
   if(brakeBtnPressed == true){
     //Serial.println("Brake Button was pressed!");
 //    Serial.print("Brake button is now: ");
 //    Serial.println(digitalRead(PB10));
+    delay(20);
     braking = !digitalRead(PB10);
   }
 
@@ -147,6 +148,7 @@ void processInterrupts(){
   // These should have a delay to reading them, but how to do that without blocking ? - Like the debouncing kind of?
   if(powerBtnPressed == true){
     Serial.println("Power Button was moved!");
+    delay(10);
     powerState = !digitalRead(PB11);
     Serial.print("Power state is now: ");
     Serial.println(powerState);
@@ -217,7 +219,8 @@ void readSensors(){
 }
 
 void calculateBatteryVoltage(){
-  scaledVoltage  = (batteryVoltageValue/4095)*VCC;
+  scaledVoltage  = ((float) batteryVoltageValue/4095)*VCC;
+
   batteryVoltage = scaledVoltage/(R2/(R1+R2));
 }
 
@@ -236,8 +239,10 @@ void handleLights(){
     // Headlight Control
     if(PWMMultiplier < 1){   // NIGHTTIME
       analogWrite(PA10, 240); // Headlight on when dark
+      headlightState = true;
     }else{                    // DAYTIME
       analogWrite(PA10, 0);   // Turn off headlight
+      headlightState = false;
     }
 
     // Left Blinker On - only if it is time to turn it back on for the on cycle and we haven't already turned it on this cycle
@@ -298,8 +303,50 @@ void handleLights(){
 
 }
 
+int count = 0;
 void updateOLED(){
-  
+  // Clear Display
+  display.clearDisplay();
+
+  // If the display should be on... BUG: Random pixels on the bottom from incorrect chip will cause power draw
+  if(powerState == true){
+    // Speedometer
+    if(MPH <= 9)display.setCursor(21,2);
+    else display.setCursor(10,2);
+    display.setTextSize(4);             // Normal 1:1 pixel scale
+    display.println((int) round(MPH));
+    display.setTextSize(1);
+    display.println();
+
+
+    display.print("Trip:");
+    display.println(tripMiles);
+
+    display.print("Total:");
+    display.println(totalMiles);
+
+    display.println();
+    display.print("VBat:");
+    display.println(batteryVoltage);
+
+    display.println();
+    display.print("Blinkers:");
+    if(leftBlinkerState == true)       display.println("L");
+    else if(rightBlinkerState == true) display.println("R");
+    else display.println();
+
+    display.print("Light:");
+    if(headlightState)                display.println("On");
+    else if(headlightState == false)  display.println("Off");
+
+    if(SDCardPresent){
+      Serial.println();
+      Serial.println("Logging...");
+    }
+  }
+
+  // Update Display
+  display.display();
 }
 
 void processLogs(){
@@ -340,6 +387,19 @@ void setupPins(){
   pinMode(PA10, OUTPUT);  // Headlight PWM
 }
 
+void setupOLED(){
+    // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3D)) { // Address 0x3D for 128x64
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;); // Don't proceed, loop forever
+  }
+  display.clearDisplay();
+  display.setRotation(3);
+  display.display();
+  display.setTextSize(1);             // Normal 1:1 pixel scale
+  display.setTextColor(SSD1306_WHITE);        // Draw white text
+}
+
 void readEEPROM(){
   EEPROM.get(0*sizeof(float), tripMetres); // Read back the trip meter in metres
   EEPROM.get(1*sizeof(float), tripMiles);  // Read back the trip miles meter in miles
@@ -352,6 +412,8 @@ void setup() {
   setupPins();
   readEEPROM();
   
+  setupOLED();
+
 }
 
 void loop() {
@@ -366,4 +428,5 @@ void loop() {
   updateOLED();               // Update the OLED with all the updated information
   processLogs();              // Log the information
   //Serial.println(micros()-inittime);
+  count++;
 }
